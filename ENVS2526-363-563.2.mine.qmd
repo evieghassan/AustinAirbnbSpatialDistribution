@@ -1,0 +1,530 @@
+---
+title: "Computational Essay"
+author: "201730962"
+toc: true
+format: 
+  html:
+    page-layout: full
+    html-math-method: katex
+    code-tools: false
+    self-contained: true
+    embed-resources: true
+editor: visual
+execute: 
+  warning: false
+---
+
+This report will examine the locations of Airbnb properties within Austin, Texas and their relation to other socio-economic demographics within the city. This is significantly relevant research as their is growing discourse around the negative impact of holiday rentals on minority/vulnerable residents in urban areas (Gold, 2019).
+
+Methodology
+
+The following maps have been projected on the World Geodetic System 1984 as Inside Airbnb provides global data across countries and this CRS is standardised globally and used by many international institutions (True, 2004).
+
+The analysis uses a listings dataset from Inside Airbnb - an independent data source project aimed at highlighting data demonstrating the impacts of rental properties on cities all over the world, as well as American Community Survey data for the different social demographics. The listings data shows the geographic locations of Airbnb listings in Austin through their longitude and latitude and the price to stay per night. The use of geographic coordinates allows for exact and unique locations (unlike addresses) as well as being more compatible with data science analysis. The price per night provide insight into the cost/value of the property, allowing better understanding of the economic environment of different listings. The current availability of data such as this is significant as it mean extensive detailed and up to date location data can be provided by an independent available publically without reliance on large corporations/governments. However it is still important to knowledge potential biases within this data as the project specifically targets negative impacts, so may not highlight any positive results of Airbnbs. The survey variables used were median household income to highlight wealthier areas and people who identified as Hispanic - a racialised ethnicity therefore likely to experience inequality (Duenas, 2024) and allows for the examination of the relationship between race and income. Census data is extensive and comprehensive but is limited by time frame (only conducted every 10 years) and may not account for residents living in Austin without certain documentation.
+
+```{r}
+listings <- read.csv("listings.csv")
+
+
+```
+
+```{r results='hide'}
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(plyr)  
+census_api_key("12efa59339e5a00a910f77f2e691309ae70e1d1b") 
+
+austin <- get_acs(                # provided example code for base plot
+  state = "TX",
+  county = c(austin = "Travis County"),
+  geography = "tract",
+  variables = "B19013_001",   
+  geometry = TRUE,
+  year = 2022
+)
+
+names(austin)
+austin_plot <- plot(austin$geometry)
+```
+
+```{r}
+
+```
+
+\
+
+```{r}
+
+```
+
+```{r}
+
+  
+
+```
+
+```{r}
+
+```
+
+```{r}
+austin <- get_acs(
+  state = "TX",
+  county = c(austin = "Travis County"),
+  geography = "tract",
+  variables = "B19013_001",   # Median household income
+  geometry = TRUE,
+  year = 2022
+)
+austin_income <- austin %>% 
+  st_drop_geometry() %>%
+  select(GEOID, med_income = estimate)
+```
+
+```{r}
+austin_hisp <- get_acs(
+  state = "TX",
+  county = c(austin = "Travis County"),   #getting survey variables for later analysis - hispanic population
+  geography = "tract",
+  table = "B03003",
+  output = "wide",
+  year = 2022
+) %>%
+  select(
+    GEOID,
+    total_pop = B03003_001E,
+    hispanic = B03003_003E
+  ) %>%
+  mutate(
+    pct_hispanic = hispanic / total_pop * 100
+  )
+```
+
+```{r}
+austin_density <- austin %>%
+  st_transform(3857) %>%                     # population density variable
+  mutate(
+    area_km2 = as.numeric(st_area(geometry)) / 1e6
+  ) %>%
+  st_drop_geometry() %>%
+  select(GEOID, area_km2)
+
+```
+
+```{r}
+austin_density <- left_join(austin_hisp %>% select(GEOID, total_pop),
+                            austin_density,
+                            by="GEOID") %>%
+  mutate(pop_density = total_pop / area_km2)
+```
+
+```{r}
+
+  
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+austin_income    <- st_drop_geometry(austin_income)
+austin_hisp      <- st_drop_geometry(austin_hisp)
+austin_density   <- st_drop_geometry(austin_density)
+
+
+
+austin_all <- join_all(
+  list(austin_income,                       #joining variables
+    austin_hisp,
+    austin_density),
+  by = "GEOID",
+  type = "left"
+)
+
+names(austin_all)
+#glimpse(austin_all)
+```
+
+```{r}
+
+#  make column names unique
+names(austin_all) <- make.names(names(austin_all), unique = TRUE)
+
+austin_plot <- left_join(austin, austin_all, by="GEOID")
+```
+
+```{r}
+library(tidycensus)
+library(sf)
+library(dplyr)
+library(tmap)
+library(spdep)
+library(readr)
+#install.packages("tigris")   
+library(tigris)
+
+
+listings_sf <- st_as_sf(listings, coords = c("longitude", "latitude"), crs = 4326)
+
+
+
+```
+
+```{r results='hide'}
+tx_counties <- counties(
+  state = "TX",
+  cb = TRUE,
+  year = 2022
+) %>%
+  st_transform(4326)
+
+travis <- tx_counties %>%
+  filter(NAME == "Travis")
+
+
+```
+
+```{r results='hide'}
+
+zctas_tx <- zctas(cb = TRUE, year = 2020) %>%           # zipcodes for austin
+  st_transform(4326)
+
+zctas_austin <- st_intersection(zctas_tx, travis)
+
+```
+
+```{r}
+
+listings <- read.csv("listings.csv", stringsAsFactors = FALSE)
+
+listings_sf <- listings %>%
+  filter(!is.na(longitude), !is.na(latitude)) %>%
+  st_as_sf(coords = c("longitude", "latitude"),
+           crs = 4326)
+
+
+```
+
+```{r}
+listings_zcta <- st_join(listings_sf, zctas_austin, join = st_within) #join listings with zipcodes
+
+```
+
+```{r}
+listings <- listings %>%
+  mutate(
+    price_num = parse_number(as.character(price))
+  ) %>%
+  filter(!is.na(longitude), !is.na(latitude), !is.na(price_num))
+
+```
+
+```{r}
+listings_sf <- st_as_sf(
+  listings,
+  coords = c("longitude", "latitude"),
+  crs = 4326
+)
+
+```
+
+```{r}
+zctas_tx <- zctas(cb = TRUE, year = 2020) %>%
+  st_transform(4326)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+listings_zcta <- st_join(
+  listings_sf,
+  zctas_austin,
+  join = st_within
+)
+```
+
+```{r}
+zcta_stats <- listings_zcta %>%
+  sf::st_drop_geometry() %>%
+  dplyr::group_by(ZCTA5CE20) %>%                # average price per zipcode
+  dplyr::summarise(
+    listings_n = dplyr::n(),
+    avg_price  = mean(price_num, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+```{r}
+zctas_map <- zctas_austin %>%
+  left_join(zcta_stats, by = "ZCTA5CE20")     # average price map       
+
+zctas_map <- zctas_map %>%
+  mutate(avg_price = ifelse(is.na(avg_price), 0, avg_price))
+```
+
+Results and Discussion
+
+```{r}
+#| label: Figure 1
+#| layout-ncol: 2
+
+library(tmap)
+
+tm_shape(zctas_map) +                        #maps for listings and                                                                        average price
+  tm_polygons(
+    fill = "listings_n",
+    fill.scale = tm_scale_intervals(
+      style = "quantile",
+      values = "viridis"
+    ),
+    fill.legend = tm_legend(
+      title = "Number of\nAirbnb listings"
+    ),
+    col = "grey70",
+    lwd = 0.5
+  ) +
+  tm_title("Map 1.1Airbnb Listings per Zipcode") +
+  tm_compass(
+    position = c("left", "top"),
+    type = "arrow"
+  ) +
+  tm_scalebar(
+    position = c("left", "bottom")
+  ) +
+  tm_layout(
+    legend.outside = TRUE,
+    frame = FALSE
+  )
+
+tm_shape(zctas_map) +
+  tm_polygons(
+    fill = "avg_price",
+    fill.scale = tm_scale_intervals(
+      values = "viridis",
+      breaks = c(0, 150, 300, 450, 600, 1000, 3000, 6000) 
+    ),
+    fill.legend = tm_legend(
+      title = "Average Airbnb Price ($)"
+    ),
+    col = "gray70",     
+    col_alpha = 0.5      
+  ) +
+  tm_compass(
+    type = "arrow",
+    position = c("right", "top")
+  ) +
+  tm_scalebar(
+    position = c("left", "bottom")
+  ) +
+  tm_title("Map 1.2: Average Airbnb Price per ZIP Code Austin, Texas") +
+  tm_layout(
+    legend.outside = TRUE,
+    frame = FALSE
+  )
+```
+
+Map 1.1 shows the number of listings per zipcode through quantile intervals as the location of rental properties is highly skewed to more desirable parts of cities, therefore allowing the colour seperations to be more distinctive, even and easy to compare. The viridis colour palette creates high contrast for comparisons whilst still be colour blind friendly. This is repeated in map 1.2 showing the average price per night in each zipcode, however this map uses custom breaks to provide a more detailed visual/comparison of the lower price ranges that would be lost with quantile breaks.
+
+Map 1.1 highlights that the majority of listings are located in the central area of the city. This is unsuprising as historically most modern cities typically follow a unicentric model with an urban core that facilitates the majority of the social and economic activity (Adenaike et al, 2023). Map 1.2 demonstrate that the listings in these more central areas tend to be around the middle to lower price range, most likely due to the high supply requiring owners to have more competitive pricing (D'Arcy and Keogh, 1999). In the NW of the central areas prices of listings are much higher, and shown in map 1.1 to be scarcer, this suggests a wealthy suburban area with large feature properties. The very outskirts in both maps with low volume and price imply there is a lack of demand for holiday rentals in these areas, possibly due to lack tourist activities and connections to the city centre.
+
+The Inside Airbnb data displayed in both these maps highlights 'snapshots' of listings data and its associated economic activity compared to GPS data that shows individual movement and travel; it is not limited my the same biases as social media data that shows deliberate snapshots influenced by culture trends and advertising.
+
+```{r}
+
+```
+
+```{r}
+#| label: Figure 2
+#| layout-ncol: 2
+tm_shape(austin_plot) +
+  tm_polygons(col = "med_income",
+              palette = "viridis",
+              style = "quantile",
+              n = 5,
+              title = "Median Household Income") +
+  tm_layout(title = "Map 2.1: Median Household Income",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))          #acs variables maps
+
+tm_shape(austin_plot) +
+  tm_polygons(col = "pct_hispanic",
+              palette = "viridis",
+              style = "quantile",
+              n = 5,
+              title = "% Hispanic Population") +
+  tm_layout(title = "Map 2.2: % Hispanic Population",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+```
+
+Map 2.1 shows the median household income across Austin and map 2.2 shows the percentage of hispanic population, both use quantile breaks to account for anomalies that would skew the data and create a fairly even colour distribution for comparison through the colour blind friendly palette viridis.
+
+When compared together directly they show the areas with higher household incomes to be in the West of the the city which are also the areas with the lower percentages of Hispanic populations. This is reflected in the lower income areas overlapping with those that have the higher percentages of Hispanic population. This suggests forms systemic and potentially environmental racism, where members of an ethnic minority experience residential segregation within less desirable and more deprived urban areas (Benz, 2017) Even if an individual is especially wealthy there are still many benefits/opportunities to living where wealth is (Turner et al, 2012), when access to such areas is systemically restricted there is greater inequality for those who cannot access such opportunities. Therefore it would be expected that Airbnbs would cluster around the E/SE of the city centre where property prices are lower (to make profit) and in close proximity to tourist activity in the city centre. This means the impacts of greater holiday properties disproportionately impacts low income and Hispanic communities.
+
+```{r}
+
+
+
+```
+
+```{r}
+listings_sf <- listings_sf %>%
+  mutate(price_num = as.numeric(price),
+         ln_price = log(price_num))
+
+
+tm_shape(austin_plot) + 
+  tm_polygons(
+    fill = "med_income",                       
+    fill.scale = tm_scale_intervals(           # log price map
+      values = "viridis",                     
+      style = "quantile", 
+      n = 5
+    ),
+    fill.legend = tm_legend(title = "Median Household Income") 
+  ) + 
+  tm_shape(listings_sf) + 
+  tm_dots(
+    fill = "ln_price",                         
+    fill.scale = tm_scale_continuous(          
+      values = "plasma"
+    ),
+    size = 0.35,
+    fill.legend = tm_legend(title = "ln of Airbnb Price")
+  ) + 
+  tm_title("Map 3: Airbnb Price (ln) vs Median Income") + 
+  tm_compass(position = c("left", "top")) + 
+  tm_scalebar(position = c("left", "bottom"))            
+  
+
+```
+
+Map 3 overlays the the previous median household income with the natural logarithm of Airbnb prices. Each use bold but different colour palettes to ensure easier visibility and comparison. This highlights the percentage changes in price through the plasma colour palette to show gradual differences in colour. Map 3 tells a better story of median household income in relation to price by highlighting a large cluster of lower priced listings throughout the lower income areas along the East of the city centre. Implying there is a traditional case of urban gentrification occurring, where intense concentration of cheaper properties being bought up in deprived areas that will eventually drive up house prices and force out more vulnerable residents (Smith, 2018).
+
+```{r}
+
+
+austin_clean <- austin_plot %>%
+  filter(!is.na(med_income))
+
+# Spatial neighbors & weights
+nb <- poly2nb(austin_clean, queen = TRUE)
+listw <- nb2listw(nb, style = "W")
+
+# Local Moran's I
+local_moran <- localmoran(austin_clean$med_income, listw)
+
+austin_clean <- austin_clean %>%
+  mutate(
+    Ii = local_moran[, "Ii"],
+    E.Ii = local_moran[, "E.Ii"],
+    Z.Ii = local_moran[, "Z.Ii"],
+    Pr.z = local_moran[, "Pr(z != E(Ii))"],
+    avg_income_std = scale(med_income)[,1],
+    lagged_income = lag.listw(listw, avg_income_std),
+    quadrant = case_when(
+      avg_income_std > 0 & lagged_income > 0 ~ "High-High",
+      avg_income_std < 0 & lagged_income < 0 ~ "Low-Low",
+      avg_income_std > 0 & lagged_income < 0 ~ "High-Low",
+      avg_income_std < 0 & lagged_income > 0 ~ "Low-High",
+      TRUE ~ "Not Significant"
+    )
+  )
+
+tm_shape(austin_clean) +            #morans i map
+  tm_polygons(col = "quadrant",
+              palette = c("red", "blue", "pink", "lightblue", "gray80"),
+              title = "LISA Cluster") +
+  tm_layout(title = "Map 4: Local Moran's I – Median Income",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+
+```
+
+Map 4 displays the spatial clustering of high and low income areas with colours that have a slight gradient but are still high contrast for distinctive comparison. It shows that in the West of the city high income areas are predominantly surrounded by other high income areas, this is paralleled in the low income areas in the East of the city. Therefore highlighting significant income inequality that is geographically segregated, meaning it will likely worsen as wealth is allowed to accumulate in one geographic area.
+
+```{r}
+library(dplyr)
+library(sf)
+
+#  variables for clustering
+acs_vars <- austin_plot %>%
+  st_drop_geometry() %>%
+  select(med_income, pct_hispanic, pop_density)
+
+#  missing values
+acs_vars_clean <- acs_vars %>% filter(complete.cases(.))
+
+# Standardise variables
+acs_scaled <- scale(acs_vars_clean)
+
+```
+
+```{r}
+set.seed(123)
+k <- 4  # number of clusters
+km_res <- kmeans(acs_scaled, centers = k, nstart = 25)
+
+
+austin_plot$cluster <- NA
+austin_plot$cluster[complete.cases(acs_vars)] <- km_res$cluster
+
+```
+
+```{r}
+library(tmap)           # geodemographic map
+
+tmap_mode("plot")
+
+tm_shape(austin_plot) +
+  tm_polygons("cluster",
+              palette = "viridis",      # color-blind friendly
+              title = "Geodemographic Cluster") +
+  tm_scale_bar(position = c("left", "bottom")) +
+  tm_compass(position = c("right", "top")) +
+  tm_layout(main.title = "Map 5: Austin Geodemographic Clusters",
+            legend.outside = TRUE)
+
+
+```
+
+Map 5 shows 4 geodemographic clusters of median income, percentage of Hispanic population, population density of areas. Cluster 1 is high income, low density and low ethnic minority areas, 2 is medium income, ethnically diverse areas, 3 is lower income, moderately diverse and denser areas and 4 is low income, higher Hispanic population, dense areas. If used to target areas most in need of government intervention it would highlight clusters 3 and 4 in need greater public services due to higher population density and financial support programmes due to lower incomes.
+
+Conclusion
+
+Overall the results of the maps show Austin Texas to be an already significantly economically and ethnically divided city, a situation potentially exacerbated by the influx of Airbnb properties putting disproportionate pressure on vulnerable urban areas.
+
+References
+
+Adenaike, F.A., Talabi, I.J., Amusan, O.A. and Ariyibi, E.-H.O. (2023) ‘Causal theories and proposals for urban upgrades in historic city centres’, *Journal of Advanced Education and Sciences*, 3(2), pp. 6–14.
+
+Benz, T.A. (2019) ‘Toxic cities: Neoliberalism and environmental racism in Flint and Detroit Michigan’, *Critical Sociology*, 45(1), pp. 49-62.
+
+D’Arcy, E. and Keogh, G. (1999) ‘The Property Market and Urban Competitiveness: A Review’, *Urban Studies*, 36(5-6), pp. 917-928.
+
+Dueñas, M.D. (2024) ‘The racial and ethnic socialisation continuum: racial oppression and resistance in Latinx families’, *Identities*, 31(5), pp. 565–584.
+
+Gold, A.E. (2019) ‘Community consequences of airbnb’, *Washington Law Review*, 94(4), pp. 1577-1638.
+
+Smith, D. (2018) ‘Renting diversity: Airbnb as the modern form of housing discrimination’, *Depaul Law Review*, 67(3), p. 6.
+
+True, S.A. (2004) ‘Planning the future of the World Geodetic System 1984’, in *PLANS 2004. Position Location and Navigation Symposium*. Monterey, CA, USA: IEEE, pp. 639-648.
+
+Turner, M.A., Nichols, A., Comey, J., Franks, K. and Price, K. (2012) *Benefits of living in high-opportunity neighborhoods*. Washington, DC: Urban Institute.

@@ -1,0 +1,452 @@
+---
+title: "Computational Essay"
+author: "Elisabetta Pietrostefani and Carmen Cabrera-Arnau"
+toc: true
+format: 
+  html:
+    html-math-method: katex
+    code-tools: false
+    self-contained: true
+    embed-resources: true
+editor: visual
+execute: 
+  warning: false
+---
+
+# Installing Packages
+
+# Introduction
+
+This report will examine the locations of Airbnb properties within Austin, Texas and their relation to other socio-economic demographics within the city. This is significantly relevant research as their is growing discourse around the negative impact of holiday rentals on minority/vulnerable residents in urban areas.
+
+# Body
+
+The analysis uses listings and neighborhood datasets from the Airbnb website as well as US census data for the different social demographics. The listings data
+
+# Conclusion
+
+# References
+
+:::: callout-note
+::: callout-note
+:::
+::::
+
+```{r}
+install.packages("tidycensus")
+install.packages("tidyverse")
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
+library(tidycensus)
+library(tidyverse)
+library(sf)
+census_api_key("12efa59339e5a00a910f77f2e691309ae70e1d1b") 
+options(tigris_use_cache = TRUE) #  tidycensus will use the tigris package to retrieve the corresponding geographic dataset from the US Census Bureau and pre-merge it with the tabular data obtained from the Census API.
+
+# https://rdrr.io/cran/tigris/man/zctas.html
+```
+
+```{r}
+listings <- read.csv("listings.csv")
+nhoods <- read.csv("neighbourhoods.csv")
+```
+
+```{}
+```
+
+```{}
+```
+
+```{r}
+```
+
+Getting Median household income for our area of interest:
+
+```{}
+```
+
+```{r austin median household income}
+austin %>%
+  ggplot(aes(fill = estimate)) + 
+  geom_sf(color = NA) + 
+  scale_fill_viridis_c(option = "magma") 
+```
+
+```{r}
+austin_income <- austin %>% 
+  st_drop_geometry() %>%
+  select(GEOID, med_income = estimate)
+```
+
+```{r Austin Population Race}
+austin_race <- get_acs(
+  state = "TX",
+  county = c(austin = "Travis County"),
+  geography = "tract",
+  table = "B02001",  # use table to GET all the variables in this given category
+  output = "wide",
+  year = 2022
+)
+
+austin_race <- austin_race %>%
+  select(-NAME) %>%
+  dplyr::rename(
+    all_ppl_race = B02001_001E,
+    black = B02001_003E
+  )
+
+head(austin_race)
+#la_race <- rename(df, numeric_var = OriginalNumericVar, character_var = Original.Character.Var)
+```
+
+## Join
+
+```{r}
+# join_all(list(la_race, XXXXXadd_in_all_your_other_dataframes)
+austin_all <- join_all(list(austin_race), by='GEOID', type='left')
+
+st_write(austin_all, "ACS_austin_2018_2022_vars.csv", append=FALSE)
+
+austin_plot <- st_as_sf(left_join(austin, 
+                       austin_all, 
+                       by='GEOID'), wkt = "geometry", crs = 32139)
+```
+
+```{r}
+austin_plot %>%
+  ggplot(aes(fill = black)) + 
+  geom_sf(color = NA) + 
+  scale_fill_viridis_c(option = "magma") 
+```
+
+```{r}
+austin_hisp <- get_acs(
+  state = "TX",
+  county = c(austin = "Travis County"),
+  geography = "tract",
+  table = "B03003",
+  output = "wide",
+  year = 2022
+) %>%
+  select(
+    GEOID,
+    total_pop = B03003_001E,
+    hispanic = B03003_003E
+  ) %>%
+  mutate(
+    pct_hispanic = hispanic / total_pop * 100
+  )
+```
+
+```{r}
+austin_density <- austin %>%
+  st_transform(NAD83) %>%                     # project for accurate area
+  mutate(
+    area_km2 = as.numeric(st_area(geometry)) / 1e6
+  ) %>%
+  st_drop_geometry() %>%
+  select(GEOID, area_km2)
+```
+
+```{r}
+austin_density <- left_join(austin_hisp %>% select(GEOID, total_pop),
+                            austin_density,
+                            by="GEOID") %>%
+  mutate(pop_density = total_pop / area_km2)
+```
+
+```{r}
+austin_unemp <- get_acs(
+  state = "TX",
+  county = c(austin = "Travis County"),
+  geography = "tract",
+  table = "DP03",
+  output = "wide",
+  year = 2022
+)
+
+austin_unemp <- austin_unemp %>%
+  select(
+    GEOID,
+    labor_force = DP03_0002E,
+    unemployed  = DP03_0005E
+  ) %>%
+  mutate(
+    unemp_rate = unemployed / labor_force * 100
+  )
+```
+
+```{r}
+austin_age <- get_acs(
+  state = "TX",
+  county = c(austin = "Travis County"),
+  geography = "tract",
+  variables = "B01002_001",   # median age
+  year = 2022
+) %>%
+  st_drop_geometry() %>%
+  select(GEOID, median_age = estimate)
+```
+
+```{r}
+austin_race      <- st_drop_geometry(austin_race)
+austin_income    <- st_drop_geometry(austin_income)
+austin_hisp      <- st_drop_geometry(austin_hisp)
+austin_density   <- st_drop_geometry(austin_density)
+austin_unemp     <- st_drop_geometry(austin_unemp)
+austin_age       <- st_drop_geometry(austin_age)
+
+#names(austin_unemp)
+
+austin_all <- join_all(
+  list(
+    austin_race,
+    austin_income,
+    austin_hisp,
+    austin_density,
+    austin_unemp,
+    austin_age
+  ),
+  by = "GEOID",
+  type = "left"
+)
+
+names(austin_all)
+#glimpse(austin_all)
+```
+
+```{r}
+#duplicated(names(austin_all))
+# Automatically make column names unique
+names(austin_all) <- make.names(names(austin_all), unique = TRUE)
+
+austin_plot <- left_join(austin, austin_all, by="GEOID")
+```
+
+```{r}
+library(tidycensus)
+library(sf)
+library(dplyr)
+library(tmap)
+library(spdep)
+library(readr)
+
+# Ensure listings dataset has longitude & latitude
+listings_sf <- st_as_sf(listings_austin, coords = c("longitude", "latitude"), crs = NAD83)
+
+# Color-blind friendly palette: "viridis" or "cividis"
+cb_palette <- "viridis"
+```
+
+```{r}
+tx_counties <- counties(
+  state = "TX",
+  cb = TRUE,
+  year = 2022
+) %>%
+  st_transform(4326)
+
+travis <- tx_counties %>%
+  filter(NAME == "Travis")
+```
+
+```{r}
+tm_shape(austin_plot) +
+  tm_polygons(col = "gray95") +
+  tm_shape(listings_sf) +
+  tm_dots(col = "red", size = 0.1, alpha = 0.7) +
+  tm_layout(title = "Airbnb Listings in Austin, TX",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+```
+
+```{r}
+# Load necessary libraries (if not already loaded)
+library(sf)
+library(dplyr)
+library(tmap)
+
+# 1. Perform the spatial join to count the points in each polygon
+# This function finds which polygon each listing point is in, then groups and counts.
+
+# First, ensure both austin_plot and listings_sf have the same CRS.
+# Assuming they do, proceed with the join:
+
+austin_with_counts <- st_join(austin_plot, listings_sf, join = st_intersects) %>%
+  group_by(NAME_OF_AREA_COLUMN_IN_AUSTIN_PLOT) %>% # Replace this with the unique ID or name column of your areas
+  summarise(listing_count = n()) %>%
+  ungroup()
+
+# NOTE: The exact column name for grouping (like 'NAME_OF_AREA_COLUMN_IN_AUSTIN_PLOT') 
+# depends on the structure of your 'austin_plot' data frame. 
+# Use the column that uniquely identifies each polygon (e.g., 'neighborhood', 'census_tract_id', etc.).
+# 'austin_with_counts' is now an sf object ready for choropleth mapping.
+```
+
+```{r}
+tm_shape(austin_plot) +
+  tm_polygons(col = "med_income",
+              palette = cb_palette,
+              style = "quantile",
+              n = 5,
+              title = "Median Household Income") +
+  tm_layout(title = "Map 2a: Median Household Income",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+```
+
+```{r}
+tm_shape(austin_plot) +
+  tm_polygons(col = "med_income",
+              palette = cb_palette,
+              style = "quantile",
+              n = 5,
+              title = "Median Household Income") +
+  tm_layout(title = "Map 2a: Median Household Income",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+```
+
+```{r}
+tm_shape(austin_plot) +
+  tm_polygons(col = "med_income",
+              palette = cb_palette,
+              style = "quantile",
+              n = 5,
+              title = "Median Household Income") +
+  tm_layout(title = "Map 2a: Median Household Income",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+```
+
+```{r}
+tm_shape(austin_plot) +
+  tm_polygons(col = "pct_hispanic",
+              palette = cb_palette,
+              style = "quantile",
+              n = 5,
+              title = "% Hispanic Population") +
+  tm_layout(title = "Map 2b: % Hispanic Population",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+```
+
+```{r}
+listings_sf <- listings_sf %>%
+  mutate(price_num = as.numeric(price),
+         ln_price = log(price_num))
+
+tm_shape(austin_plot) +
+  tm_polygons(col = "med_income",
+              palette = cb_palette,
+              style = "quantile",
+              n = 5,
+              title = "Median Household Income") +
+  tm_shape(listings_sf) +
+  tm_dots(col = "ln_price",
+          palette = cb_palette,
+          size = 0.1,
+          title = "ln(Airbnb Price)") +
+  tm_layout(title = "Map 3: Airbnb Price (ln) vs Median Income",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+```
+
+```{r}
+# Example with median income
+austin_clean <- austin_plot %>%
+  filter(!is.na(med_income))
+
+# Spatial neighbors & weights
+nb <- poly2nb(austin_clean, queen = TRUE)
+listw <- nb2listw(nb, style = "W")
+
+# Local Moran's I
+local_moran <- localmoran(austin_clean$med_income, listw)
+
+austin_clean <- austin_clean %>%
+  mutate(
+    Ii = local_moran[, "Ii"],
+    E.Ii = local_moran[, "E.Ii"],
+    Z.Ii = local_moran[, "Z.Ii"],
+    Pr.z = local_moran[, "Pr(z != E(Ii))"],
+    avg_income_std = scale(med_income)[,1],
+    lagged_income = lag.listw(listw, avg_income_std),
+    quadrant = case_when(
+      avg_income_std > 0 & lagged_income > 0 ~ "High-High",
+      avg_income_std < 0 & lagged_income < 0 ~ "Low-Low",
+      avg_income_std > 0 & lagged_income < 0 ~ "High-Low",
+      avg_income_std < 0 & lagged_income > 0 ~ "Low-High",
+      TRUE ~ "Not Significant"
+    )
+  )
+
+tm_shape(austin_clean) +
+  tm_polygons(col = "quadrant",
+              palette = c("red", "blue", "pink", "lightblue", "gray80"),
+              title = "LISA Cluster") +
+  tm_layout(title = "Map 4: Local Moran's I – Median Income",
+            legend.outside = TRUE) +
+  tm_compass(position = c("left", "top")) +
+  tm_scale_bar(position = c("left", "bottom"))
+
+```
+
+```{r}
+library(dplyr)
+library(sf)
+
+# Keep only variables for clustering
+acs_vars <- austin_plot %>%
+  st_drop_geometry() %>%
+  select(med_income, pct_hispanic, pop_density, unemp_rate, median_age)
+
+# Remove rows with any missing values
+acs_vars_clean <- acs_vars %>% filter(complete.cases(.))
+
+# Standardize variables
+acs_scaled <- scale(acs_vars_clean)
+```
+
+```{r}
+set.seed(123)
+k <- 4  # number of clusters
+km_res <- kmeans(acs_scaled, centers = k, nstart = 25)
+
+# Add cluster labels back to sf object
+austin_plot$cluster <- NA
+austin_plot$cluster[complete.cases(acs_vars)] <- km_res$cluster
+```
+
+```{r}
+library(tmap)
+
+tmap_mode("plot")
+
+tm_shape(austin_plot) +
+  tm_polygons("cluster",
+              palette = "viridis",      # color-blind friendly
+              title = "Geodemographic Cluster") +
+  tm_scale_bar(position = c("left", "bottom")) +
+  tm_compass(position = c("right", "top")) +
+  tm_layout(main.title = "Austin Geodemographic Clusters",
+            legend.outside = TRUE)
+```
+
+## References and Helpful links
+
+-   <https://api.census.gov/data/2022/acs/acs5/variables.html>
+
+-   <https://walker-data.com/tidycensus/articles/basic-usage.html>
+
+-   <https://walker-data.com/tidycensus/>
+
+-   <https://walker-data.com/tidycensus/articles/spatial-data.html>
+
+-   <https://walker-data.com/isds-webinar/#34>
